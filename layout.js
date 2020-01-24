@@ -30,7 +30,12 @@ function parseNode(node) {
     nodeName: node.nodeName,
     attributes,
     children: Array.from(node.childNodes)
-      .filter(node => !(node.nodeType === 3 && node.nodeValue.trim() === ''))
+      .filter(node =>
+        // Whitespace-only text node
+        !(node.nodeType === 3 && node.nodeValue.trim() === '')
+        // Comment node
+        && node.nodeType !== 8
+      )
       .map(parseNode)
   }
 }
@@ -115,7 +120,7 @@ function arrangeChildren(elem) {
       [childPrimaryMeasure.unit]: acc[childPrimaryMeasure.unit] + childPrimaryMeasure.value
     };
   }, { 'dp': 0, '*': 0 });
-  const starUnitValue = (elem.layout.width - contentMeasure.dp) / contentMeasure['*'];
+  const starUnitValue = (elem.layout[primaryAxisMeasure] - contentMeasure.dp) / contentMeasure['*'];
 
   elem.children.reduce((layoutOffset, child) => {
     const childPrimaryMeasure = child.measure[primaryAxisMeasure];
@@ -146,11 +151,8 @@ function arrangeChildren(elem) {
   elem.children.forEach(arrangeChildren);
 }
 
-function emitRectangles(elem) {
-  return [
-    new Rect(elem.layout.x, elem.layout.y, elem.layout.width, elem.layout.height),
-    ...elem.children.flatMap(emitRectangles)
-  ];
+function flattenElemTree(elem) {
+  return [elem, ...elem.children.flatMap(flattenElemTree)];
 }
 
 function runLayout(canvasElem, rootElem) {
@@ -175,10 +177,11 @@ function runLayout(canvasElem, rootElem) {
   rootElem.children.forEach(measureElem);
   arrangeChildren(rootElem);
 
-  console.log(rootElem);
+  const elements = flattenElemTree(rootElem);
+  elements.forEach((elem, index) => elem.number = index);
+  const rectangles = elements.map(elem =>
+    new Rect(elem.layout.x, elem.layout.y, elem.layout.width, elem.layout.height));
 
-  const rectangles = emitRectangles(rootElem);
-  console.log(rectangles);
 
   const ctx = canvas.getContext('2d');
   rectangles.forEach((rect, index) => {
