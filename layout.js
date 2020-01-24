@@ -35,7 +35,8 @@ function parseNode(node) {
   }
 }
 
-const layoutPromise = fetch('layouts/complex-layout.imu')
+const layoutFile = location.search.substring(1) || 'complex-layout';
+const layoutPromise = fetch(`layouts/${layoutFile}.imu`)
   .then(response => response.text())
   .then(parseLayout);
 
