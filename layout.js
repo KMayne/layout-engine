@@ -35,14 +35,13 @@ function parseNode(node) {
   }
 }
 
-const layoutPromise = fetch('layouts/single-element.imu')
+const layoutPromise = fetch('layouts/complex-layout.imu')
   .then(response => response.text())
   .then(parseLayout);
 
 document.addEventListener('DOMContentLoaded', async () => {
   const canvas = document.getElementById('canvas');
-  window.addEventListener('resize', () => runLayout(canvas));
-  console.log(await layoutPromise);
+  window.addEventListener('resize', async () => runLayout(canvas, await layoutPromise));
   runLayout(canvas, await layoutPromise);
 });
 
@@ -54,44 +53,96 @@ function oppositeOffset(dimension) {
   return dimension === 'x' ? 'y' : 'x';
 }
 
-function resolveContentDimensions(elem) {
-  const layoutAttribute = elem.attributes['layout-direction'] === 'column' ? 'height' : 'width';
-  if (elem.attributes.width === 'content') {
-    if (layout) {}
-    // elem.layout.width = elem
-  }
-  if (elem.attributes.height === 'content') {
-
+function parseMeasure(measureString) {
+  const measureValRegex = /^(?<value>[0-9]+)(?<unit>dp|\*)$/;
+  const match = measureString.match(measureValRegex).groups;
+  return {
+    value: Number(match.value),
+    unit: match.unit
   }
 }
 
-// 2 passes -> 1 upwards (fills in all content & dp), then downwards (fills in * & x + y offsets)
-function calculateLayout(elem, layoutOffset) {
-  const measureAttribute = elem.attributes['layout-direction'] === 'column' ? 'height' : 'width';
-  const offsetAttribute = elem.attributes['layout-direction'] === 'column' ? 'y' : 'x';
-  elem.layout = { ...elem.layout };
+function measureElem(elem) {
+  const primaryAxisMeasure = elem.attributes['layout-direction'] === 'column' ? 'height' : 'width';
+  const secondaryAxisMeasure = oppositeAxis(primaryAxisMeasure);
 
-  elem.children.reduce((layoutOffset, childElem) => {
-    calculateLayout(childElem, layoutOffset);
-    return layoutOffset + childElem.layout[measureAttribute];
+  elem.children.forEach(measureElem);
+
+  const contentSize = {
+    [primaryAxisMeasure]: elem.children.reduce((sum, child) =>
+      sum + (child.measure[primaryAxisMeasure].unit === 'dp' ? child.measure[primaryAxisMeasure].value : 0), 0),
+    [secondaryAxisMeasure]: Math.max(...elem.children.map(child => child.measure[secondaryAxisMeasure].value), 0)
+  };
+
+  elem.measure = {};
+
+  if (elem.attributes[primaryAxisMeasure] === 'content') {
+    if (elem.children.length === 0) console.warn('Content-sized box had 0 children');
+    elem.measure[primaryAxisMeasure] = {
+       value: contentSize[primaryAxisMeasure],
+       unit: 'dp'
+    };
+  } else {
+    elem.measure[primaryAxisMeasure] = parseMeasure(elem.attributes[primaryAxisMeasure]);
+    if (elem.measure[primaryAxisMeasure].value < contentSize[primaryAxisMeasure].value) {
+      throw new Error('Box overflow');
+    }
+  }
+
+  if (elem.attributes[secondaryAxisMeasure] === 'content') {
+    elem.measure[secondaryAxisMeasure] = {
+      value: contentSize[secondaryAxisMeasure],
+      unit: 'dp'
+    };
+  } else {
+    elem.measure[secondaryAxisMeasure] = parseMeasure(elem.attributes[secondaryAxisMeasure]);
+  }
+}
+
+// Parent needs to do layout (including sizing of * units)
+// 2 passes -> 1 upwards (fills in all content & dp), then downwards (fills in * & x + y offsets)
+function arrangeChildren(elem) {
+  const primaryAxisOffset = elem.attributes['layout-direction'] === 'column' ? 'y' : 'x';
+  const secondaryAxisOffset = oppositeOffset(primaryAxisOffset);
+  const primaryAxisMeasure = elem.attributes['layout-direction'] === 'column' ? 'height' : 'width';
+  const secondaryAxisMeasure = oppositeAxis(primaryAxisMeasure);
+
+  const contentMeasure = elem.children.reduce((acc, child) => {
+    const childPrimaryMeasure = child.measure[primaryAxisMeasure];
+    return {
+      ...acc,
+      [childPrimaryMeasure.unit]: acc[childPrimaryMeasure.unit] + childPrimaryMeasure.value
+    };
+  }, { 'dp': 0, '*': 0 });
+  const starUnitValue = (elem.layout.width - contentMeasure.dp) / contentMeasure['*'];
+
+  elem.children.reduce((layoutOffset, child) => {
+    const childPrimaryMeasure = child.measure[primaryAxisMeasure];
+    const childSecondaryMeasure = child.measure[secondaryAxisMeasure];
+
+    const childPrimarySize =
+      childPrimaryMeasure.unit === 'dp'
+      ? childPrimaryMeasure.value
+      : childPrimaryMeasure.value * starUnitValue;
+    const childSecondarySize =
+      childSecondaryMeasure.unit === 'dp'
+      ? childSecondaryMeasure.value
+      : elem.layout[secondaryAxisMeasure];
+
+    if (childSecondaryMeasure.unit === '*' && childSecondaryMeasure.value > 1) {
+      console.warn('Ignoring star value on secondary axis');
+    }
+
+    child.layout = {
+      [primaryAxisOffset]: elem.layout[primaryAxisOffset] + layoutOffset,
+      [secondaryAxisOffset]: elem.layout[secondaryAxisOffset],
+      [primaryAxisMeasure]: childPrimarySize,
+      [secondaryAxisMeasure]: childSecondarySize
+    };
+    return layoutOffset + childPrimarySize;
   }, 0);
 
-  const measureValRegex = /^(content)|([0-9]+)(dp|\*)$/;
-  const measureValue = elem.attributes[measureAttribute];
-  elem.layout[measureAttribute] = 200;
-  elem.layout[offsetAttribute] = layoutOffset;
-  elem.layout[oppositeOffset(offsetAttribute)] = 0;
-  // switch (elem.attributes[measureAttribute]) {
-  //   case '_*': // parent must calculate -> requires top-down resolution
-  //               // and knowledge of siblings (maybe better to traverse in XML format?)
-  //     break;
-  //   case 'content': // -> requires bottom up resolution
-  //     elem.layout[measureAttribute] = elem.children.reduce((sum, child) => sum + elem.layout[measureAttribute], 0);
-  //     break;
-  //   case '_dp':
-  //     break;
-  // }
-  elem.layout[oppositeAxis(measureAttribute)] = 100;
+  elem.children.forEach(arrangeChildren);
 }
 
 function emitRectangles(elem) {
@@ -102,18 +153,28 @@ function emitRectangles(elem) {
 }
 
 function runLayout(canvasElem, rootElem) {
+  console.log(rootElem);
+
   canvas.width = document.documentElement.clientWidth;
   canvas.height = document.documentElement.clientHeight;
 
   if (rootElem.nodeName !== 'imuroot') throw new Error('Unexpected root element');
-  // Dimension - (_dp | _* | content)
+  // Dimension - (_dp | content | fill)
+  // * only allowed on primary measure
+  // fill only allowed on secondary measure
   // * cannot appear below content in visual tree
   // content cannot appear on a leaf node (could produce a warning?)
-  // root element is always width="*", height="*"
-  // Probably want to avoid implicit values
-  calculateLayout(rootElem, 0);
-  rootElem.layout.width = canvas.width;
-  rootElem.layout.height = canvas.height;
+  // root element always fills the display area
+  rootElem.layout = {
+    x: 0,
+    y: 0,
+    width: canvas.width,
+    height: canvas.height
+  };
+  rootElem.children.forEach(measureElem);
+  arrangeChildren(rootElem);
+
+  console.log(rootElem);
 
   const rectangles = emitRectangles(rootElem);
   console.log(rectangles);
@@ -130,8 +191,9 @@ function runLayout(canvasElem, rootElem) {
     ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
     // Label box
     ctx.font = `${rect.height * 0.8}px sans-serif`;
+    ctx.textAlign = 'center';
     ctx.fillStyle = inverseColour;
-    ctx.fillText(String(index), rect.x + rect.width * 0.35, rect.y + rect.height * 0.8);
+    ctx.fillText(String(index), rect.x + rect.width * 0.5, rect.y + rect.height * 0.78, rect.width);
   });
 }
 
