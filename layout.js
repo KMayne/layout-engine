@@ -1,71 +1,11 @@
 'use strict';
 
-const colours = [
-  '#F2DC5D',
-  '#F2A359',
-  '#DB9065',
-  '#A4031F',
-  '#240B36',
-  '#71A2B6',
-  '#C4F1BE'
-];
-
-function invertColour(hex) {
-  const number = Number.parseInt(hex.substring(1), 16);
-  const inverted = number ^ 0xFFFFFF;
-  return `#${inverted.toString(16).padStart(6, '0')}`;
-}
-
-const domParser = new DOMParser();
-function parseLayout(xmlDocString) {
-  const xmlDoc = domParser.parseFromString(xmlDocString, 'application/xml');
-  return parseNode(xmlDoc.documentElement);
-}
-
-function parseNode(node) {
-  const attributes = Object.fromEntries(Object.entries(node.attributes)
-    .map(attribArray => ([attribArray[1].name, attribArray[1].nodeValue])
-  ));
-  return {
-    nodeName: node.nodeName,
-    attributes,
-    children: Array.from(node.childNodes)
-      .filter(node =>
-        // Whitespace-only text node
-        !(node.nodeType === 3 && node.nodeValue.trim() === '')
-        // Comment node
-        && node.nodeType !== 8
-      )
-      .map(parseNode)
-  }
-}
-
-const layoutFile = location.search.substring(1) || 'complex-layout';
-const layoutPromise = fetch(`layouts/${layoutFile}.imu`)
-  .then(response => response.text())
-  .then(parseLayout);
-
-document.addEventListener('DOMContentLoaded', async () => {
-  const canvas = document.getElementById('canvas');
-  window.addEventListener('resize', async () => runLayout(canvas, await layoutPromise));
-  runLayout(canvas, await layoutPromise);
-});
-
 function oppositeAxis(dimension) {
   return dimension === 'width' ? 'height' : 'width';
 }
 
 function oppositeOffset(dimension) {
   return dimension === 'x' ? 'y' : 'x';
-}
-
-function parseMeasure(measureString) {
-  const measureValRegex = /^(?<value>[0-9]+)(?<unit>dp|\*)$/;
-  const match = measureString.match(measureValRegex).groups;
-  return {
-    value: Number(match.value),
-    unit: match.unit
-  }
 }
 
 function measureElem(elem) {
@@ -89,7 +29,7 @@ function measureElem(elem) {
        unit: 'dp'
     };
   } else {
-    elem.measure[primaryAxisMeasure] = parseMeasure(elem.attributes[primaryAxisMeasure]);
+    elem.measure[primaryAxisMeasure] = elem.attributes[primaryAxisMeasure];
     if (elem.measure[primaryAxisMeasure].value < contentSize[primaryAxisMeasure].value) {
       throw new Error('Box overflow');
     }
@@ -101,7 +41,7 @@ function measureElem(elem) {
       unit: 'dp'
     };
   } else {
-    elem.measure[secondaryAxisMeasure] = parseMeasure(elem.attributes[secondaryAxisMeasure]);
+    elem.measure[secondaryAxisMeasure] = elem.attributes[secondaryAxisMeasure];
   }
 }
 
@@ -151,62 +91,18 @@ function arrangeChildren(elem) {
   elem.children.forEach(arrangeChildren);
 }
 
-function flattenElemTree(elem) {
-  return [elem, ...elem.children.flatMap(flattenElemTree)];
-}
-
-function runLayout(canvasElem, rootElem) {
-  console.log(rootElem);
-
-  canvas.width = document.documentElement.clientWidth;
-  canvas.height = document.documentElement.clientHeight;
-
-  if (rootElem.nodeName !== 'imuroot') throw new Error('Unexpected root element');
-  // Dimension - (_dp | content | fill)
+export function calculateLayout(rootElem, width, height) {
+  // Dimension - (_dp | content | fill | _*)
   // * only allowed on primary measure
   // fill only allowed on secondary measure
   // * cannot appear below content in visual tree
   // content cannot appear on a leaf node (could produce a warning?)
   // root element always fills the display area
-  rootElem.layout = {
-    x: 0,
-    y: 0,
-    width: canvas.width,
-    height: canvas.height
-  };
+  rootElem.layout = { x: 0, y: 0, width, height };
   rootElem.children.forEach(measureElem);
   arrangeChildren(rootElem);
-
-  const elements = flattenElemTree(rootElem);
-  elements.forEach((elem, index) => elem.number = index);
-  const rectangles = elements.map(elem =>
-    new Rect(elem.layout.x, elem.layout.y, elem.layout.width, elem.layout.height));
-
-
-  const ctx = canvas.getContext('2d');
-  rectangles.forEach((rect, index) => {
-    const colour = colours[index % colours.length];
-    const inverseColour = invertColour(colour);
-    // Draw box
-    ctx.fillStyle = colour;
-    ctx.strokeStyle = inverseColour;
-    ctx.setLineDash([5]);
-    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-    // Label box
-    ctx.font = `${rect.height * 0.8}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = inverseColour;
-    ctx.fillText(String(index), rect.x + rect.width * 0.5, rect.y + rect.height * 0.5, rect.width);
-  });
 }
 
-class Rect {
-  constructor(x, y, width, height) {
-    this.x = x;
-    this.y = y;
-    this.width = width;
-    this.height = height;
-  }
+export function flattenElemTree(elem) {
+  return [elem, ...elem.children.flatMap(flattenElemTree)];
 }

@@ -18,7 +18,41 @@
         height: 100%;
       }
     </style>
-    <script defer src="./layout.js"></script>
+    <script type="module">
+      import { parseLayout } from './parser.js';
+      import { calculateLayout } from './layout.js';
+      import { drawLayout } from './renderer.js';
+
+      function runLayout(rootElem, canvasElem, width, height) {
+        canvas.width = width;
+        canvas.height = height;
+        calculateLayout(rootElem, width, height);
+        drawLayout(rootElem, canvasElem);
+      }
+
+      const layoutFile = location.search.substring(1) || 'complex-layout';
+      const layoutPromise = fetch(`layouts/${layoutFile}.imu`)
+        .then(response => response.text())
+        .then(parseLayout);
+
+      document.addEventListener('DOMContentLoaded', async () => {
+        const canvas = document.getElementById('canvas');
+        window.addEventListener('resize', async () =>
+          runLayout(
+            await layoutPromise,
+            canvas,
+            document.documentElement.clientWidth,
+            document.documentElement.clientHeight
+          )
+        );
+        runLayout(
+          await layoutPromise,
+          canvas,
+          document.documentElement.clientWidth,
+          document.documentElement.clientHeight
+        );
+      });
+    </script>
   </head>
   <body>
     <canvas id="canvas">
