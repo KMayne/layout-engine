@@ -196,8 +196,9 @@ function runLayout(canvasElem, rootElem) {
     // Label box
     ctx.font = `${rect.height * 0.8}px sans-serif`;
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     ctx.fillStyle = inverseColour;
-    ctx.fillText(String(index), rect.x + rect.width * 0.5, rect.y + rect.height * 0.78, rect.width);
+    ctx.fillText(String(index), rect.x + rect.width * 0.5, rect.y + rect.height * 0.5, rect.width);
   });
 }
 
