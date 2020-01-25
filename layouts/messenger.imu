@@ -1,8 +1,6 @@
 <imuroot version="0.0.0">
-  <box width="5*" height="1*">
-
-  </box>
-  <box width="15*" height="1*" layout-direction="column">
+  <box width="1*" height="1*" />
+  <box width="3*" height="1*" layout-direction="column">
     <box width="1*" height="60dp" />
     <box width="1*" height="1*" layout-direction="row">
       <box name="message-container" width="7*" height="1*" />
