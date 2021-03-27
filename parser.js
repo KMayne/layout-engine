@@ -12,8 +12,8 @@ function parseNode(node) {
   const attributes = Object.fromEntries(Object.entries(node.attributes)
     .map(attribArray => ([attribArray[1].name, attribArray[1].nodeValue])
   ));
-  if (attributes.width) attributes.width = parseMeasure(attributes.width);
-  if (attributes.height) attributes.height = parseMeasure(attributes.height);
+  if (attributes.width && attributes.width !== 'content') attributes.width = parseMeasure(attributes.width);
+  if (attributes.height && attributes.height !== 'content') attributes.height = parseMeasure(attributes.height);
 
   return {
     nodeName: node.nodeName,
