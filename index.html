@@ -19,9 +19,9 @@
       }
     </style>
     <script type="module">
-      import { parseLayout } from './parser.js';
-      import { calculateLayout } from './layout.js';
-      import { drawLayout } from './renderer.js';
+      import { parseLayout } from './parser.mjs';
+      import { calculateLayout } from './layout.mjs';
+      import { drawLayout } from './renderer.mjs';
 
       function runLayout(rootElem, canvasElem, width, height) {
         canvas.width = width;

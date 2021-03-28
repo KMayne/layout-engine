@@ -1,5 +1,5 @@
 'use strict';
-import { flattenElemTree } from './layout.js';
+import { flattenElemTree } from './layout.mjs';
 
 function invertColour(hex) {
   const number = Number.parseInt(hex.substring(1), 16);
