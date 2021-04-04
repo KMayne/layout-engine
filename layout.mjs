@@ -8,75 +8,72 @@ function oppositeOffset(dimension) {
   return dimension === 'x' ? 'y' : 'x';
 }
 
-function measureElem(elem) {
-  const primaryAxisMeasure = elem.attributes['layout-direction'] === 'column' ? 'height' : 'width';
-  const secondaryAxisMeasure = oppositeAxis(primaryAxisMeasure);
-
-  elem.children.forEach(measureElem);
-
-  const contentSize = {
-    [primaryAxisMeasure]: elem.children.reduce((sum, child) =>
-      sum + (child.measure[primaryAxisMeasure].unit === 'dp' ? child.measure[primaryAxisMeasure].value : 0), 0),
-    [secondaryAxisMeasure]: Math.max(...elem.children.map(child => child.measure[secondaryAxisMeasure].value), 0)
-  };
-
-  elem.measure = {};
-
-  if (elem.attributes[primaryAxisMeasure] === 'content') {
-    if (elem.children.length === 0) console.warn('Content-sized box had 0 children');
-    elem.measure[primaryAxisMeasure] = {
-       value: contentSize[primaryAxisMeasure],
-       unit: 'dp'
-    };
-  } else {
-    elem.measure[primaryAxisMeasure] = elem.attributes[primaryAxisMeasure];
-    if (elem.measure[primaryAxisMeasure].value < contentSize[primaryAxisMeasure].value) {
-      throw new Error('Box overflow');
+function measureAxis(elem, dimensionName, isPrimaryAxis) {
+  if (elem.attributes[dimensionName]?.unit === 'content') {
+    const dimensionForChildren = elem.children.map(child => {
+      if (child.measure[dimensionName].unit !== 'dp') {
+        throw new Error('Non-definite unit (i.e. not dp nor content) may not appear along an axis with a ' +
+          `content-sized box - child is ${JSON.stringify(child)}`);
+      }
+      return child.measure[dimensionName].value;
+    });
+    if (dimensionForChildren.length === 0) {
+      throw new Error(`'content' cannot be used for elements with no children, elem: ${elem}`);
     }
+    return isPrimaryAxis
+      ? { 'value': dimensionForChildren.reduce((acc, dimension) => acc + dimension, 0), 'unit': 'dp' }
+      : { 'value': Math.max(...dimensionForChildren), 'unit': 'dp' };
   }
 
-  if (elem.attributes[secondaryAxisMeasure] === 'content') {
-    elem.measure[secondaryAxisMeasure] = {
-      value: contentSize[secondaryAxisMeasure],
-      unit: 'dp'
-    };
-  } else {
-    elem.measure[secondaryAxisMeasure] = elem.attributes[secondaryAxisMeasure];
-  }
+  return elem.attributes[dimensionName];
+}
+
+// This stage replaces 'content' values with the measured size of the content and inserts the default values.
+// Content values must be definite (i.e. all child elements eventually resolve to dp-type values with no star elements)
+function measureElem(elem) {
+  elem.children.forEach(measureElem);
+  elem.measure = {
+    width: measureAxis(elem, 'width', elem.attributes['layout-direction'] !== 'column'),
+    height: measureAxis(elem, 'height', elem.attributes['layout-direction'] === 'column')
+  };
 }
 
 // Parent needs to do layout (including sizing of * units)
 // 2 passes -> 1 upwards (fills in all content & dp), then downwards (fills in * & x + y offsets)
+// Element passed in must have been "measured.
 function arrangeChildren(elem) {
   const primaryAxisOffset = elem.attributes['layout-direction'] === 'column' ? 'y' : 'x';
   const secondaryAxisOffset = oppositeOffset(primaryAxisOffset);
   const primaryAxisMeasure = elem.attributes['layout-direction'] === 'column' ? 'height' : 'width';
   const secondaryAxisMeasure = oppositeAxis(primaryAxisMeasure);
 
-  const contentMeasure = elem.children.reduce((acc, child) => {
-    const childPrimaryMeasure = child.measure[primaryAxisMeasure];
+  const contentPrimaryMeasure = elem.children.reduce((acc, child) => {
+    const childPrimaryMeasure = child.measure[primaryAxisMeasure] || { value: 1, unit: '*' };
     return {
       ...acc,
       [childPrimaryMeasure.unit]: acc[childPrimaryMeasure.unit] + childPrimaryMeasure.value
     };
   }, { 'dp': 0, '*': 0 });
-  const starUnitValue = (elem.layout[primaryAxisMeasure] - contentMeasure.dp) / contentMeasure['*'];
+  const starUnitValue = (elem.layout[primaryAxisMeasure] - contentPrimaryMeasure.dp) / contentPrimaryMeasure['*'];
 
   elem.children.reduce((layoutOffset, child) => {
-    const childPrimaryMeasure = child.measure[primaryAxisMeasure];
-    const childSecondaryMeasure = child.measure[secondaryAxisMeasure];
+    const childPrimaryMeasure = child.measure[primaryAxisMeasure] || { value: 1, unit: '*' };
+    const childSecondaryMeasure = child.measure[secondaryAxisMeasure] || { unit: 'fill' };
 
     const childPrimarySize =
       childPrimaryMeasure.unit === 'dp'
       ? childPrimaryMeasure.value
       : childPrimaryMeasure.value * starUnitValue;
-    const childSecondarySize =
-      childSecondaryMeasure.unit === 'dp'
-      ? childSecondaryMeasure.value
-      : elem.layout[secondaryAxisMeasure];
 
-    if (childSecondaryMeasure.unit === '*' && childSecondaryMeasure.value > 1) {
-      console.warn('Ignoring star value on secondary axis');
+    let childSecondarySize;
+    if (childSecondaryMeasure.unit === 'fill') {
+      childSecondarySize = elem.layout[secondaryAxisMeasure];
+    } else if (childSecondaryMeasure.unit === 'dp') {
+      childSecondarySize = childSecondaryMeasure.value;
+    } else if (childSecondaryMeasure.unit === '*') {
+      throw new Error(`Star value not allowed on secondary axis - bad element: ${JSON.stringify(child)}`)
+    } else {
+      throw new Error(`Unexpected unmeasured child - this should not happen. Measure was: ${JSON.stringify(childSecondaryMeasure)}`);
     }
 
     child.layout = {
@@ -92,10 +89,10 @@ function arrangeChildren(elem) {
 }
 
 export function calculateLayout(rootElem, width, height) {
-  // Dimension - (_dp | content | fill | _*)
-  // * only allowed on primary measure
-  // fill only allowed on secondary measure
-  // * cannot appear below content in visual tree
+  // Dimension
+  // Primary measure ( content | dp | * )
+  // Secondary measure ( content | dp | fill | [TODO: %] )
+  // * cannot appear below 'content' in visual tree
   // content cannot appear on a leaf node (could produce a warning?)
   // root element always fills the display area
   rootElem.layout = { x: 0, y: 0, width, height };

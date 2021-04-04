@@ -1,0 +1,6 @@
+<imuroot version="0.0.0" layout-direction="column">
+  <box height="40dp" />
+  <box height="2*" />
+  <box />
+  <box height="20dp" />
+</imuroot>

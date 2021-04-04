@@ -1,5 +1,5 @@
 <imuroot version="0.0.0" layout-direction="row">
-  <box width="1*" height="1*">
+  <box width="1*" height="fill">
     <box width="50dp" height="50dp" />
     <box width="50dp" height="50dp" />
     <box width="50dp" height="50dp" />

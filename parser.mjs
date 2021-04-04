@@ -12,8 +12,8 @@ function parseNode(node) {
   const attributes = Object.fromEntries(Object.entries(node.attributes)
     .map(attribArray => ([attribArray[1].name, attribArray[1].nodeValue])
   ));
-  if (attributes.width && attributes.width !== 'content') attributes.width = parseMeasure(attributes.width);
-  if (attributes.height && attributes.height !== 'content') attributes.height = parseMeasure(attributes.height);
+  attributes.width = tryParseMeasure(attributes.width);
+  attributes.height = tryParseMeasure(attributes.height);
 
   return {
     nodeName: node.nodeName,
@@ -29,11 +29,12 @@ function parseNode(node) {
   }
 }
 
-function parseMeasure(measureString) {
+function tryParseMeasure(measureString) {
   const measureValRegex = /^(?<value>[0-9]+)(?<unit>dp|\*)$/;
-  const match = measureString.match(measureValRegex).groups;
-  return {
-    value: Number(match.value),
-    unit: match.unit
-  }
+  const match = measureString?.match(measureValRegex)?.groups;
+  if (match) return { value: Number(match.value), unit: match.unit };
+  if (measureString === 'content') return { unit: 'content' };
+  if (measureString === 'fill') return { unit: 'fill' };
+  if (measureString === undefined) return undefined;
+  throw new Error(`Unrecognised measure value: ${measureString}`);
 }
